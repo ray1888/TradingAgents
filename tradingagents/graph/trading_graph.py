@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -30,12 +31,25 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.quantlab_tushare import (
+    is_quantlab_profile,
+    prepare_quantlab_run,
+    provenance_for_config,
+    resolve_quantlab_identity,
+    write_failed_provenance,
+)
 from tradingagents.dataflows.utils import safe_ticker_component
-from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.default_config import DEFAULT_CONFIG, apply_env_overrides
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.reporting import write_report_tree
 
-from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
+from .checkpointer import (
+    bind_checkpoint_signature,
+    checkpoint_step,
+    clear_checkpoint,
+    get_checkpointer,
+    thread_id,
+)
 from .conditional_logic import ConditionalLogic
 from .propagation import Propagator
 from .reflection import Reflector
@@ -95,11 +109,25 @@ class TradingAgentsGraph:
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
         """
         self.debug = debug
-        self.config = config or DEFAULT_CONFIG
+        raw_config = deepcopy(config if config is not None else DEFAULT_CONFIG)
+        precedence_resolved = bool(raw_config.pop("_config_precedence_resolved", False))
+        self.config = raw_config if precedence_resolved else apply_env_overrides(raw_config)
+        if is_quantlab_profile(self.config):
+            selected_analysts = ("market", "fundamentals")
+            if self.config.get("quantlab_target_ticker"):
+                try:
+                    self.config = prepare_quantlab_run(self.config)
+                except Exception as exc:
+                    write_failed_provenance(self.config, exc)
+                    raise
+        self.selected_analysts = tuple(selected_analysts)
         self.callbacks = callbacks or []
 
         # Update the interface's config
-        set_config(self.config)
+        # A graph owns one complete run configuration. Replacing here prevents
+        # a previous QuantLab graph's strict tool vendor from leaking into a
+        # later default/global-market graph in the same Python process.
+        set_config(self.config, replace=True)
 
         # Create necessary directories
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
@@ -156,11 +184,8 @@ class TradingAgentsGraph:
         self.ticker = None
         self.log_states_dict = {}  # date to full state dict
 
-        # Graph-shape-affecting run choices, kept for the checkpoint signature.
-        self.selected_analysts = tuple(selected_analysts)
-
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        self.workflow = self.graph_setup.setup_graph(self.selected_analysts)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
         self._resuming = False
@@ -373,7 +398,11 @@ class TradingAgentsGraph:
         path and the CLI call this so the resolved identity reaches the whole
         graph regardless of entry point.
         """
-        identity = resolve_instrument_identity(ticker)
+        identity = (
+            resolve_quantlab_identity(ticker)
+            if is_quantlab_profile(self.config)
+            else resolve_instrument_identity(ticker)
+        )
         return build_instrument_context(ticker, asset_type, identity)
 
     def _memory_as_of(self, trade_date) -> str | None:
@@ -394,12 +423,21 @@ class TradingAgentsGraph:
         selection, debate/risk depth, or asset mode starts fresh instead of
         silently continuing the previous graph (#1089).
         """
-        return "|".join([
+        parts = [
             "analysts=" + ",".join(self.selected_analysts),
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
-        ])
+        ]
+        if is_quantlab_profile(self.config):
+            parts.extend(
+                f"{key}={self.config.get(key, '')}"
+                for key in (
+                    "research_profile", "snapshot_id", "financial_manifest_id",
+                    "as_of_date", "quantlab_target_ticker", "benchmark_ticker",
+                )
+            )
+        return "|".join(parts)
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock"):
         """Run the trading agents graph for a company on a specific date.
@@ -417,16 +455,47 @@ class TradingAgentsGraph:
         ``tradingagents.agents.utils.rating.is_review`` before mapping it to the
         PortfolioRating enum.
         """
+        if is_quantlab_profile(self.config):
+            if asset_type != "stock":
+                exc = ValueError("quantlab-a-share only supports stock assets")
+                write_failed_provenance(self.config, exc)
+                raise exc
+            if str(trade_date) != str(self.config.get("as_of_date")):
+                exc = ValueError("trade_date must equal the immutable QuantLab as_of_date")
+                write_failed_provenance(self.config, exc)
+                raise exc
+            bound = self.config.get("_quantlab_context")
+            requested = str(company_name).strip()
+            if not isinstance(bound, dict) or requested not in {
+                str(bound.get("target_ticker", "")),
+                str(self.config.get("_quantlab_requested_ticker", "")),
+            }:
+                candidate = deepcopy(self.config)
+                candidate["quantlab_target_ticker"] = requested
+                try:
+                    self.config = prepare_quantlab_run(candidate)
+                    set_config(self.config, replace=True)
+                except Exception as exc:
+                    write_failed_provenance(candidate, exc)
+                    raise
+            company_name = self.config["quantlab_target_ticker"]
+
         self.ticker = company_name
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.
-        self._resolve_pending_entries(company_name)
+        if not is_quantlab_profile(self.config):
+            self._resolve_pending_entries(company_name)
 
-        with self.checkpoint_scope(company_name, trade_date, asset_type) as thread_id_value:
-            return self._run_graph(
-                company_name, trade_date, asset_type=asset_type,
-                checkpoint_thread_id=thread_id_value,
-            )
+        try:
+            with self.checkpoint_scope(company_name, trade_date, asset_type) as thread_id_value:
+                return self._run_graph(
+                    company_name, trade_date, asset_type=asset_type,
+                    checkpoint_thread_id=thread_id_value,
+                )
+        except Exception as exc:
+            if is_quantlab_profile(self.config):
+                write_failed_provenance(self.config, exc)
+            raise
 
     def begin_checkpoint(self, company_name, trade_date, asset_type: str = "stock") -> str | None:
         """Recompile the graph with a per-ticker checkpointer and return the
@@ -443,6 +512,10 @@ class TradingAgentsGraph:
         if not self.config.get("checkpoint_enabled"):
             return None
         signature = self._run_signature(asset_type)
+        if is_quantlab_profile(self.config):
+            bind_checkpoint_signature(
+                self.config["data_cache_dir"], company_name, str(trade_date), signature
+            )
         self._checkpointer_ctx = get_checkpointer(self.config["data_cache_dir"], company_name)
         saver = self._checkpointer_ctx.__enter__()
         self.graph = self.workflow.compile(checkpointer=saver)
@@ -504,7 +577,12 @@ class TradingAgentsGraph:
                 / "reports"
                 / f"{safe_ticker_component(ticker)}_{stamp}"
             )
-        return write_report_tree(final_state, ticker, save_path)
+        return write_report_tree(
+            final_state,
+            ticker,
+            save_path,
+            provenance=(provenance_for_config(self.config) if self is not None else None),
+        )
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock",
                    checkpoint_thread_id: str | None = None):

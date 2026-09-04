@@ -6,11 +6,17 @@ CLI and ``TradingAgentsGraph.save_reports`` both call this, so a headless / API
 run produces the same on-disk report tree a CLI run does.
 """
 
+import json
 from datetime import datetime
 from pathlib import Path
 
 
-def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
+def write_report_tree(
+    final_state: dict,
+    ticker: str,
+    save_path,
+    provenance: dict | None = None,
+) -> Path:
     """Save a completed run's reports to ``save_path``; return the complete-report path."""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
@@ -94,6 +100,27 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
             portfolio_dir.mkdir(exist_ok=True)
             (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
+
+    if provenance is not None:
+        (save_path / "provenance.json").write_text(
+            json.dumps(provenance, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        versions = provenance.get("versions", {})
+        provenance_lines = [
+            "## VI. Data Provenance",
+            "",
+            f"- Status: {provenance.get('status', 'unknown')}",
+            f"- Provider: {provenance.get('actual_provider', 'unknown')}",
+            f"- Snapshot: {versions.get('snapshot_id', 'unknown')}",
+            f"- Financial manifest: {versions.get('financial_manifest_id', 'unknown')}",
+            f"- As-of date: {versions.get('as_of_date', 'unknown')}",
+            f"- Target: {provenance.get('target_ticker', ticker)}",
+            f"- Benchmark: {provenance.get('benchmark_ticker', 'unknown')}",
+            "",
+            "See `provenance.json` for request-level audit details.",
+        ]
+        sections.append("\n".join(provenance_lines))
 
     # Write consolidated report
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"

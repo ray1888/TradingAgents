@@ -67,3 +67,26 @@ def test_checkpoint_flag_overrides_env(flag):
     with mock.patch.object(m, "DEFAULT_CONFIG", patched):
         cfg = m._build_run_config(SELECTIONS, checkpoint=flag)
     assert cfg["checkpoint_enabled"] is flag
+
+
+def test_quantlab_cli_wins_over_environment_and_config(monkeypatch):
+    monkeypatch.setenv("QUANTLAB_SNAPSHOT_ID", "snapshot-from-env")
+    monkeypatch.setenv("QUANTLAB_FINANCIAL_MANIFEST_ID", "manifest-from-env")
+    patched = dict(
+        m.DEFAULT_CONFIG,
+        snapshot_id="snapshot-from-config",
+        financial_manifest_id="manifest-from-config",
+    )
+    with mock.patch.object(m, "DEFAULT_CONFIG", patched):
+        cfg = m._build_run_config(
+            SELECTIONS,
+            checkpoint=None,
+            cli_overrides={
+                "research_profile": "quantlab-a-share",
+                "snapshot_id": "snapshot-from-cli",
+            },
+        )
+
+    assert cfg["research_profile"] == "quantlab_a_share"
+    assert cfg["snapshot_id"] == "snapshot-from-cli"
+    assert cfg["financial_manifest_id"] == "manifest-from-env"

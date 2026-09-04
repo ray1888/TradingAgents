@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
 
@@ -17,6 +18,15 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
+    "TRADINGAGENTS_RESEARCH_PROFILE":     "research_profile",
+    "QUANTLAB_BASE_URL":                  "quantlab_base_url",
+    "QUANTLAB_API_TOKEN":                 "quantlab_api_token",
+    "QUANTLAB_SNAPSHOT_ID":               "snapshot_id",
+    "QUANTLAB_FINANCIAL_MANIFEST_ID":     "financial_manifest_id",
+    "QUANTLAB_AS_OF_DATE":                "as_of_date",
+    "QUANTLAB_BENCHMARK_TICKER":          "benchmark_ticker",
+    "QUANTLAB_TIMEOUT_SECONDS":           "quantlab_timeout_seconds",
+    "QUANTLAB_MAX_RETRIES":               "quantlab_max_retries",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
@@ -69,6 +79,11 @@ def _apply_env_overrides(config: dict) -> dict:
     return config
 
 
+def apply_env_overrides(config: dict) -> dict:
+    """Return a copy with environment overrides applied (env > config)."""
+    return _apply_env_overrides(deepcopy(config))
+
+
 DEFAULT_CONFIG = _apply_env_overrides({
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
@@ -78,6 +93,17 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
+    # Explicit point-in-time A-share research mode. The default remains the
+    # existing global workflow; QuantLab versions are never selected implicitly.
+    "research_profile": "default",
+    "quantlab_base_url": None,
+    "quantlab_api_token": None,
+    "snapshot_id": None,
+    "financial_manifest_id": None,
+    "as_of_date": None,
+    "quantlab_target_ticker": None,
+    "quantlab_timeout_seconds": 15.0,
+    "quantlab_max_retries": 2,
     # LLM settings
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.6",

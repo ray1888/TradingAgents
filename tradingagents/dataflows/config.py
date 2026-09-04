@@ -13,14 +13,19 @@ def initialize_config():
         _config = deepcopy(default_config.DEFAULT_CONFIG)
 
 
-def set_config(config: dict):
+def set_config(config: dict, *, replace: bool = False):
     """Update the configuration with custom values.
 
     Dict-valued keys (e.g. ``data_vendors``) are merged one level deep so a
     partial update like ``{"data_vendors": {"core_stock_apis": "alpha_vantage"}}``
     keeps the other nested keys from the default; scalar keys are replaced.
+    ``replace=True`` installs an isolated run configuration and prevents vendor
+    settings from a previous graph leaking into a later run.
     """
     global _config
+    if replace:
+        _config = deepcopy(config)
+        return
     initialize_config()
     incoming = deepcopy(config)
     for key, value in incoming.items():

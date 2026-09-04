@@ -8,12 +8,16 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from tradingagents.dataflows.utils import safe_ticker_component
+
+
+class CheckpointSignatureMismatch(RuntimeError):
+    """An unfinished checkpoint is bound to a different immutable context."""
 
 
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
@@ -70,6 +74,58 @@ def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str
         return cp.metadata.get("step")
 
 
+def bind_checkpoint_signature(
+    data_dir: str | Path, ticker: str, date: str, signature: str
+) -> None:
+    """Bind an unfinished run to its immutable signature.
+
+    TradingAgents historically starts a new checkpoint thread when the graph
+    shape changes. QuantLab runs need a stricter contract: an existing run for
+    the same ticker/date must never be resumed or replaced under a different
+    snapshot, manifest, target, or benchmark. The binding is stored beside the
+    LangGraph checkpoint rows and removed only after a successful run.
+    """
+    db = _db_path(data_dir, ticker)
+    tid = thread_id(ticker, date, signature)
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ta_run_signatures (
+                trade_date TEXT PRIMARY KEY,
+                signature TEXT NOT NULL,
+                thread_id TEXT NOT NULL
+            )"""
+        )
+        row = conn.execute(
+            "SELECT signature, thread_id FROM ta_run_signatures WHERE trade_date = ?",
+            (str(date),),
+        ).fetchone()
+        if row is not None and row[0] != signature:
+            try:
+                checkpoint_exists = conn.execute(
+                    "SELECT 1 FROM checkpoints WHERE thread_id = ? LIMIT 1", (row[1],)
+                ).fetchone()
+            except sqlite3.OperationalError:
+                checkpoint_exists = None
+            if checkpoint_exists is not None:
+                raise CheckpointSignatureMismatch(
+                    "Checkpoint context mismatch for "
+                    f"{ticker.upper()} on {date}; clear or finish the existing run first"
+                )
+            conn.execute(
+                "UPDATE ta_run_signatures SET signature = ?, thread_id = ? WHERE trade_date = ?",
+                (signature, tid, str(date)),
+            )
+        elif row is None:
+            conn.execute(
+                "INSERT INTO ta_run_signatures (trade_date, signature, thread_id) VALUES (?, ?, ?)",
+                (str(date), signature, tid),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def clear_all_checkpoints(data_dir: str | Path) -> int:
     """Remove all checkpoint DBs. Returns number of files deleted."""
     cp_dir = Path(data_dir) / "checkpoints"
@@ -91,6 +147,11 @@ def clear_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: st
     try:
         for table in ("writes", "checkpoints"):
             conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (tid,))
+        with suppress(sqlite3.OperationalError):
+            conn.execute(
+                "DELETE FROM ta_run_signatures WHERE trade_date = ? AND signature = ?",
+                (str(date), signature),
+            )
         conn.commit()
     except sqlite3.OperationalError:
         pass

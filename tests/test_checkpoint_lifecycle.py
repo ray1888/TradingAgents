@@ -15,7 +15,7 @@ from typing import TypedDict
 import pytest
 from langgraph.graph import END, StateGraph
 
-from tradingagents.graph.checkpointer import checkpoint_step
+from tradingagents.graph.checkpointer import CheckpointSignatureMismatch, checkpoint_step
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 _should_crash = False
@@ -153,3 +153,37 @@ def test_cli_style_usage_saves_then_resumes():
 
         # Cleared on success -> a later run starts fresh.
         assert checkpoint_step(tmp, "AAPL", "2026-05-08", sig) is None
+
+
+@pytest.mark.unit
+def test_quantlab_checkpoint_rejects_version_mismatch():
+    global _should_crash
+    with tempfile.TemporaryDirectory() as tmp:
+        args = ("600519.SH", "2025-12-31", "stock")
+        g1 = _bare_graph(tmp)
+        g1.config.update(
+            {
+                "research_profile": "quantlab_a_share",
+                "snapshot_id": "snapshot-a",
+                "financial_manifest_id": "manifest-a",
+                "as_of_date": "2025-12-31",
+                "quantlab_target_ticker": "600519.SH",
+                "benchmark_ticker": "000300.SH",
+            }
+        )
+        tid = g1.begin_checkpoint(*args)
+        try:
+            _should_crash = True
+            with pytest.raises(RuntimeError, match="simulated mid-stream crash"):
+                g1.graph.invoke(
+                    {"count": 0}, config={"configurable": {"thread_id": tid}}
+                )
+        finally:
+            g1.end_checkpoint()
+
+        g2 = _bare_graph(tmp)
+        g2.config.update(g1.config)
+        g2.config["snapshot_id"] = "snapshot-b"
+        with pytest.raises(CheckpointSignatureMismatch, match="context mismatch"):
+            g2.begin_checkpoint(*args)
+        assert g2._checkpointer_ctx is None

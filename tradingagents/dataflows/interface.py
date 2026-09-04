@@ -19,6 +19,14 @@ from .errors import (
 )
 from .fred import get_macro_data as get_fred_macro_data
 from .polymarket import get_prediction_markets as get_polymarket_prediction_markets
+from .quantlab_tushare import (
+    get_quantlab_balance_sheet,
+    get_quantlab_cashflow,
+    get_quantlab_fundamentals,
+    get_quantlab_income_statement,
+    get_quantlab_indicators,
+    get_quantlab_stock,
+)
 from .y_finance import (
     get_balance_sheet as get_yfinance_balance_sheet,
     get_cashflow as get_yfinance_cashflow,
@@ -82,6 +90,7 @@ VENDOR_LIST = [
     "fred",
     "polymarket",
     "alpha_vantage",
+    "quantlab_tushare",
 ]
 
 # Optional enrichment categories. These add macro/event context to the news
@@ -97,28 +106,34 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "quantlab_tushare": get_quantlab_stock,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "quantlab_tushare": get_quantlab_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
+        "quantlab_tushare": get_quantlab_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
+        "quantlab_tushare": get_quantlab_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
+        "quantlab_tushare": get_quantlab_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
+        "quantlab_tushare": get_quantlab_income_statement,
     },
     # news_data
     "get_news": {

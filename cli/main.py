@@ -3,6 +3,7 @@ import os
 import sys
 import time
 from collections import deque
+from copy import deepcopy
 from functools import wraps
 from pathlib import Path
 
@@ -41,7 +42,12 @@ from cli.utils import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.dataflows.quantlab_tushare import (
+    is_quantlab_profile,
+    provenance_for_config,
+    write_failed_provenance,
+)
+from tradingagents.default_config import DEFAULT_CONFIG, apply_env_overrides
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
@@ -760,9 +766,9 @@ def get_analysis_date():
             )
 
 
-def save_report_to_disk(final_state, ticker: str, save_path: Path):
+def save_report_to_disk(final_state, ticker: str, save_path: Path, provenance=None):
     """Save the complete analysis report to disk (shared CLI/API writer)."""
-    return write_report_tree(final_state, ticker, save_path)
+    return write_report_tree(final_state, ticker, save_path, provenance=provenance)
 
 
 def display_complete_report(final_state):
@@ -971,13 +977,17 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
+def _build_run_config(
+    selections: dict,
+    checkpoint: bool | None,
+    cli_overrides: dict | None = None,
+) -> dict:
     """Assemble the run config from interactive selections, honoring env precedence.
 
     Round counts and checkpoint follow "explicit env/flag wins": an env-applied
     value on DEFAULT_CONFIG is preserved unless the user overrode it on the CLI.
     """
-    config = DEFAULT_CONFIG.copy()
+    config = deepcopy(DEFAULT_CONFIG)
     # Research depth sets both round counts, but an explicit env override
     # (TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS) wins over the
     # interactive selection — leave the env-applied value in place (#977).
@@ -998,14 +1008,31 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     # the flag preserves TRADINGAGENTS_CHECKPOINT_ENABLED / the default (#976).
     if checkpoint is not None:
         config["checkpoint_enabled"] = checkpoint
+    # QuantLab precedence is deliberately resolved in one place: project
+    # configuration < environment < explicit CLI flags.
+    config = apply_env_overrides(config)
+    for key, value in (cli_overrides or {}).items():
+        if value is not None:
+            config[key] = value
+    profile = str(config.get("research_profile", "default")).replace("-", "_")
+    config["research_profile"] = profile
+    config["_config_precedence_resolved"] = True
     return config
 
 
-def run_analysis(checkpoint: bool | None = None):
+def run_analysis(
+    checkpoint: bool | None = None,
+    quantlab_options: dict | None = None,
+):
     # First get all user selections
     selections = get_user_selections()
 
-    config = _build_run_config(selections, checkpoint)
+    config = _build_run_config(selections, checkpoint, quantlab_options)
+    if is_quantlab_profile(config):
+        config["quantlab_target_ticker"] = selections["ticker"]
+        if config.get("as_of_date"):
+            selections["analysis_date"] = config["as_of_date"]
+        selections["asset_type"] = "stock"
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1013,6 +1040,8 @@ def run_analysis(checkpoint: bool | None = None):
     # Normalize analyst selection to predefined order (selection is a 'set', order is fixed)
     selected_set = {analyst.value for analyst in selections["analysts"]}
     selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
+    if is_quantlab_profile(config):
+        selected_analyst_keys = ["market", "fundamentals"]
     analyst_execution_plan = build_analyst_execution_plan(selected_analyst_keys)
     analyst_wall_time_tracker = AnalystWallTimeTracker(analyst_execution_plan)
 
@@ -1023,6 +1052,9 @@ def run_analysis(checkpoint: bool | None = None):
         debug=True,
         callbacks=[stats_handler],
     )
+    config = graph.config
+    if is_quantlab_profile(config):
+        selections["ticker"] = config["quantlab_target_ticker"]
 
     # Initialize message buffer with selected analysts
     message_buffer.init_for_analysis(selected_analyst_keys)
@@ -1130,9 +1162,14 @@ def run_analysis(checkpoint: bool | None = None):
         # Recompile with a checkpointer and inject the thread_id so --checkpoint
         # actually saves and resumes on the CLI path (#1249); a no-op when
         # checkpointing is disabled. Torn down in the finally below.
-        checkpoint_tid = graph.begin_checkpoint(
-            selections["ticker"], selections["analysis_date"], selections["asset_type"]
-        )
+        try:
+            checkpoint_tid = graph.begin_checkpoint(
+                selections["ticker"], selections["analysis_date"], selections["asset_type"]
+            )
+        except Exception as exc:
+            if is_quantlab_profile(graph.config):
+                write_failed_provenance(graph.config, exc)
+            raise
         if checkpoint_tid is not None:
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = checkpoint_tid
 
@@ -1248,6 +1285,10 @@ def run_analysis(checkpoint: bool | None = None):
             graph.clear_checkpoint_on_success(
                 selections["ticker"], selections["analysis_date"], selections["asset_type"]
             )
+        except Exception as exc:
+            if is_quantlab_profile(graph.config):
+                write_failed_provenance(graph.config, exc)
+            raise
         finally:
             # Always restore the plain uncheckpointed graph, even on failure.
             graph.end_checkpoint()
@@ -1289,7 +1330,12 @@ def run_analysis(checkpoint: bool | None = None):
         ).strip()
         save_path = Path(save_path_str)
         try:
-            report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+            report_file = save_report_to_disk(
+                final_state,
+                selections["ticker"],
+                save_path,
+                provenance=provenance_for_config(graph.config),
+            )
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
@@ -1314,13 +1360,33 @@ def analyze(
         "--clear-checkpoints",
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Research profile: default or quantlab-a-share.",
+    ),
+    snapshot_id: str | None = typer.Option(None, "--snapshot-id"),
+    financial_manifest_id: str | None = typer.Option(
+        None, "--financial-manifest-id"
+    ),
+    as_of_date: str | None = typer.Option(None, "--as-of-date"),
+    benchmark: str | None = typer.Option(None, "--benchmark"),
 ):
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     try:
-        run_analysis(checkpoint=checkpoint)
+        run_analysis(
+            checkpoint=checkpoint,
+            quantlab_options={
+                "research_profile": profile,
+                "snapshot_id": snapshot_id,
+                "financial_manifest_id": financial_manifest_id,
+                "as_of_date": as_of_date,
+                "benchmark_ticker": benchmark,
+            },
+        )
     except _NO_CONSOLE_ERRORS:
         # A terminal with no console buffer cannot host the interactive prompts.
         # Emit one actionable line on stderr instead of a prompt_toolkit

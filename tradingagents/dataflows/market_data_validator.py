@@ -15,6 +15,8 @@ from collections.abc import Iterable
 import pandas as pd
 from stockstats import wrap
 
+from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.quantlab_tushare import is_quantlab_profile, load_quantlab_ohlcv
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
@@ -32,7 +34,12 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     look-ahead rows, but we re-apply the cutoff defensively — this is a
     verification path, so it must not trust its input to be pre-filtered.
     """
-    data = load_ohlcv(symbol, curr_date)
+    config = get_config()
+    data = (
+        load_quantlab_ohlcv(symbol, end_date=curr_date)
+        if is_quantlab_profile(config)
+        else load_ohlcv(symbol, curr_date)
+    )
     if data is None or data.empty:
         raise ValueError(f"No OHLCV data available for {symbol}.")
 

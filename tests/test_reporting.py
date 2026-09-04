@@ -1,6 +1,7 @@
 """Report parity: the shared writer produces the report tree for the CLI and the
 programmatic API alike (#1037)."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -48,3 +49,26 @@ def test_save_reports_defaults_under_results_dir(tmp_path):
     assert out.exists()
     assert out.parent.parent.name == "reports"  # results_dir/reports/AAPL_<stamp>/...
     assert out.parent.name.startswith("AAPL_")
+
+
+@pytest.mark.unit
+def test_provenance_appendix_is_written_without_credentials(tmp_path):
+    provenance = {
+        "status": "partial",
+        "actual_provider": "tushare",
+        "versions": {
+            "snapshot_id": "snapshot-1",
+            "financial_manifest_id": "manifest-1",
+            "as_of_date": "2025-06-30",
+        },
+        "target_ticker": "600519.SH",
+        "benchmark_ticker": "000300.SH",
+        "requests": [{"endpoint": "/market-bars", "status": "success"}],
+    }
+    out = write_report_tree(_state(), "600519.SH", tmp_path, provenance=provenance)
+
+    saved = json.loads((tmp_path / "provenance.json").read_text())
+    assert saved == provenance
+    assert "## VI. Data Provenance" in out.read_text()
+    assert "snapshot-1" in out.read_text()
+    assert "token" not in (tmp_path / "provenance.json").read_text().lower()
