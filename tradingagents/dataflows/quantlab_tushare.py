@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -24,6 +25,9 @@ PROFILE = "quantlab_a_share"
 VENDOR = "quantlab_tushare"
 _PROVENANCE: dict[str, dict[str, Any]] = {}
 _LOCK = threading.RLock()
+_MARKET_CACHE: OrderedDict[tuple[str, str, str, str], pd.DataFrame] = OrderedDict()
+_MARKET_CACHE_LOCK = threading.RLock()
+_MARKET_CACHE_MAX_ENTRIES = 16
 
 
 class QuantLabError(RuntimeError):
@@ -94,7 +98,7 @@ class QuantLabClient:
             connect=max(0, retries),
             read=max(0, retries),
             status=max(0, retries),
-            status_forcelist=(429, 502, 503, 504),
+            status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=frozenset(("GET", "POST")),
             backoff_factor=0.25,
             raise_on_status=False,
@@ -361,6 +365,8 @@ def prepare_quantlab_run(config: dict[str, Any]) -> dict[str, Any]:
     prepared["tool_vendors"] = tool_vendors
     with _LOCK:
         _PROVENANCE[context.signature] = _new_provenance(context, meta)
+    with _MARKET_CACHE_LOCK:
+        _MARKET_CACHE.clear()
     _record(context, "/context/resolve", response)
     return prepared
 
@@ -407,34 +413,58 @@ def _market_frame(
     ticker: str, start_date: str | None = None, end_date: str | None = None
 ) -> pd.DataFrame:
     config, context, client = _context()
-    try:
-        params = _request_params(context)
-        if start_date:
-            params["start_date"] = start_date
-        if end_date:
-            params["end_date"] = end_date
-        payload = client.request(
-            "GET", f"/api/research-data/v1/market-bars/{quote(ticker, safe='')}", params=params
-        )
-        _validate_bound_response(payload, context, price_basis="hfq")
-        rows = payload["data"].get("bars") if isinstance(payload["data"], dict) else None
-        if not isinstance(rows, list) or not rows:
-            raise QuantLabError("DATA_NOT_FOUND", f"No frozen market bars for {ticker}")
-        frame = pd.DataFrame(rows)
-        rename = {name: name.title() for name in ("date", "open", "high", "low", "close", "volume")}
-        frame = frame.rename(columns=rename)
-        required = {"Date", "Open", "High", "Low", "Close", "Volume"}
-        if not required.issubset(frame.columns):
-            raise QuantLabError("INVALID_RESPONSE", "market bars are missing OHLCV fields")
-        frame["Date"] = pd.to_datetime(frame["Date"], errors="raise")
-        if frame["Date"].dt.date.max() > datetime.strptime(context.as_of_date, "%Y-%m-%d").date():
-            raise QuantLabError("FUTURE_DATA", "market bars contain data after as_of_date")
-        result = frame.sort_values("Date").reset_index(drop=True)
-        _record(context, "/market-bars", payload)
-        return result
-    except Exception as exc:
-        _record_failure(context, "/market-bars", exc, config)
-        raise
+    cache_key = (
+        context.signature,
+        str(ticker).upper(),
+        str(start_date or ""),
+        str(end_date or ""),
+    )
+    # Keep the request inside the lock so concurrent indicator tools share one
+    # immutable snapshot read instead of racing through identical Parquet scans.
+    with _MARKET_CACHE_LOCK:
+        cached = _MARKET_CACHE.get(cache_key)
+        if cached is not None:
+            _MARKET_CACHE.move_to_end(cache_key)
+            return cached.copy(deep=True)
+        try:
+            params = _request_params(context)
+            if start_date:
+                params["start_date"] = start_date
+            if end_date:
+                params["end_date"] = end_date
+            payload = client.request(
+                "GET",
+                f"/api/research-data/v1/market-bars/{quote(ticker, safe='')}",
+                params=params,
+            )
+            _validate_bound_response(payload, context, price_basis="hfq")
+            rows = payload["data"].get("bars") if isinstance(payload["data"], dict) else None
+            if not isinstance(rows, list) or not rows:
+                raise QuantLabError("DATA_NOT_FOUND", f"No frozen market bars for {ticker}")
+            frame = pd.DataFrame(rows)
+            rename = {
+                name: name.title() for name in ("date", "open", "high", "low", "close", "volume")
+            }
+            frame = frame.rename(columns=rename)
+            required = {"Date", "Open", "High", "Low", "Close", "Volume"}
+            if not required.issubset(frame.columns):
+                raise QuantLabError("INVALID_RESPONSE", "market bars are missing OHLCV fields")
+            frame["Date"] = pd.to_datetime(frame["Date"], errors="raise")
+            if (
+                frame["Date"].dt.date.max()
+                > datetime.strptime(context.as_of_date, "%Y-%m-%d").date()
+            ):
+                raise QuantLabError("FUTURE_DATA", "market bars contain data after as_of_date")
+            result = frame.sort_values("Date").reset_index(drop=True)
+            _record(context, "/market-bars", payload)
+            _MARKET_CACHE[cache_key] = result.copy(deep=True)
+            _MARKET_CACHE.move_to_end(cache_key)
+            while len(_MARKET_CACHE) > _MARKET_CACHE_MAX_ENTRIES:
+                _MARKET_CACHE.popitem(last=False)
+            return result
+        except Exception as exc:
+            _record_failure(context, "/market-bars", exc, config)
+            raise
 
 
 def load_quantlab_ohlcv(
@@ -477,14 +507,12 @@ def get_quantlab_indicators(
     _, context, _ = _context()
     start = max(start, datetime.strptime(context.data_start_date, "%Y-%m-%d"))
     frame = _market_frame(ticker, start.strftime("%Y-%m-%d"), curr_date)
-    stock = wrap(frame.rename(columns=str.lower))
+    stock = wrap(frame.set_index("Date").rename(columns=str.lower))
     stock[indicator]
-    stock["date"] = pd.to_datetime(stock["date"]).dt.strftime("%Y-%m-%d")
-    cutoff = (end - timedelta(days=int(look_back_days))).strftime("%Y-%m-%d")
-    values = stock.loc[stock["date"] >= cutoff, ["date", indicator]]
+    cutoff = pd.Timestamp(end - timedelta(days=int(look_back_days)))
+    values = stock.loc[stock.index >= cutoff, indicator]
     lines = [
-        f"{row.date}: {'N/A' if pd.isna(getattr(row, indicator)) else getattr(row, indicator)}"
-        for row in values.itertuples(index=False)
+        f"{date:%Y-%m-%d}: {'N/A' if pd.isna(value) else value}" for date, value in values.items()
     ]
     return f"## {indicator} from QuantLab frozen OHLCV\n\n" + "\n".join(lines)
 

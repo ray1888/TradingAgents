@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 
+import pandas as pd
 import pytest
 
 import tradingagents.dataflows.quantlab_tushare as quantlab
@@ -208,3 +209,61 @@ def test_failed_market_contract_is_recorded_in_provenance(monkeypatch):
     assert provenance["requests"][-1]["endpoint"] == "/market-bars"
     assert provenance["requests"][-1]["status"] == "failed"
     assert provenance["requests"][-1]["error_code"] == "FUTURE_DATA"
+
+
+@pytest.mark.unit
+def test_indicators_use_date_index_instead_of_parsing_date_as_indicator(monkeypatch):
+    prepared = _resolved_config(monkeypatch)
+    dates = pd.date_range("2024-01-01", "2025-06-30", freq="B")
+    frame = pd.DataFrame(
+        {
+            "Date": dates,
+            "Open": range(1, len(dates) + 1),
+            "High": range(2, len(dates) + 2),
+            "Low": range(0, len(dates)),
+            "Close": range(1, len(dates) + 1),
+            "Volume": [1000] * len(dates),
+        }
+    )
+    monkeypatch.setattr(quantlab, "_market_frame", lambda *args, **kwargs: frame.copy())
+    old = get_config()
+    try:
+        set_config(prepared, replace=True)
+        result = quantlab.get_quantlab_indicators("600519.SH", "close_50_sma", "2025-06-30", 10)
+    finally:
+        set_config(old, replace=True)
+
+    assert result.startswith("## close_50_sma from QuantLab frozen OHLCV")
+    assert "2025-06-30:" in result
+
+
+@pytest.mark.unit
+def test_identical_market_reads_share_run_cache(monkeypatch):
+    prepared = _resolved_config(monkeypatch)
+    market = {
+        "data": {
+            "bars": [
+                {
+                    "date": "2025-06-30",
+                    "open": 1,
+                    "high": 2,
+                    "low": 0.5,
+                    "close": 1.5,
+                    "volume": 100,
+                }
+            ]
+        },
+        "meta": _meta(),
+    }
+    client = _FakeClient([market])
+    monkeypatch.setattr(quantlab, "_client", lambda config: client)
+    old = get_config()
+    try:
+        set_config(prepared, replace=True)
+        first = quantlab.get_quantlab_stock("600519.SH", "2025-06-30", "2025-06-30")
+        second = quantlab.get_quantlab_stock("600519.SH", "2025-06-30", "2025-06-30")
+    finally:
+        set_config(old, replace=True)
+
+    assert first == second
+    assert client.responses == []
