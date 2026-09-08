@@ -766,9 +766,11 @@ def get_analysis_date():
             )
 
 
-def save_report_to_disk(final_state, ticker: str, save_path: Path, provenance=None):
-    """Save the complete analysis report to disk (shared CLI/API writer)."""
-    return write_report_tree(final_state, ticker, save_path, provenance=provenance)
+def save_report_to_disk(final_state, ticker: str, save_path: Path, provenance=None, config=None):
+    """Save the complete analysis report through the configured store adapter."""
+    return write_report_tree(
+        final_state, ticker, save_path, provenance=provenance, config=config
+    )
 
 
 def display_complete_report(final_state):
@@ -1330,14 +1332,21 @@ def run_analysis(
         ).strip()
         save_path = Path(save_path_str)
         try:
-            report_file = save_report_to_disk(
+            result = save_report_to_disk(
                 final_state,
                 selections["ticker"],
                 save_path,
                 provenance=provenance_for_config(graph.config),
+                config=graph.config,
             )
-            console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
-            console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
+            if result.download_url:
+                console.print(f"\n[green]✓ Report uploaded:[/green] {result.download_url}")
+                console.print(f"  [dim]Object prefix:[/dim] {result.destination}")
+            else:
+                console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
+                report_file = result.complete_report_path
+                if report_file is not None:
+                    console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
             console.print(f"[red]Error saving report: {e}[/red]")
 

@@ -19,6 +19,7 @@ from requests.adapters import HTTPAdapter
 from stockstats import wrap
 from urllib3.util.retry import Retry
 
+from ..report_store import build_report_store
 from .config import get_config
 
 PROFILE = "quantlab_a_share"
@@ -647,6 +648,18 @@ def write_failed_provenance(config: dict[str, Any], exc: Exception) -> Path:
                 "message": message,
             }
         )
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    store = build_report_store(config)
+    destination = (
+        f"{target}/{config.get('as_of_date') or 'unknown'}/reports"
+        if store.backend == "s3"
+        else path
+    )
+    result = store.save({"provenance.json": encoded}, destination=destination)
+    local = result.local_path("provenance.json")
+    if local is not None:
+        return local
+    path.mkdir(parents=True, exist_ok=True)
     output = path / "provenance.json"
-    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    output.write_text(encoded, encoding="utf-8")
     return output

@@ -36,6 +36,14 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+    "TRADINGAGENTS_REPORT_STORE":            "report_store",
+    "TRADINGAGENTS_S3_ENDPOINT":             "s3_endpoint_url",
+    "TRADINGAGENTS_S3_BUCKET":               "s3_bucket",
+    "TRADINGAGENTS_S3_PREFIX":               "s3_prefix",
+    "TRADINGAGENTS_S3_ACCESS_KEY":           "s3_access_key",
+    "TRADINGAGENTS_S3_SECRET_KEY":           "s3_secret_key",
+    "TRADINGAGENTS_S3_REGION":               "s3_region",
+    "TRADINGAGENTS_S3_PRESIGN_SECONDS":      "s3_presign_seconds",
 }
 
 
@@ -104,6 +112,17 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "quantlab_target_ticker": None,
     "quantlab_timeout_seconds": 15.0,
     "quantlab_max_retries": 2,
+    # Report persistence. "file" writes the markdown tree locally (default).
+    # "s3" (or "minio") uploads the same tree plus a zip to S3-compatible object
+    # storage and returns a presigned download URL.
+    "report_store": "file",
+    "s3_endpoint_url": None,
+    "s3_bucket": None,
+    "s3_prefix": "tradingagents/reports",
+    "s3_access_key": None,
+    "s3_secret_key": None,
+    "s3_region": "us-east-1",
+    "s3_presign_seconds": 604800,
     # LLM settings
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.6",
