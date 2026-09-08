@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "protocol_version": "1",
+  "supported_research_types": ["industry_thesis", "candidate_review"],
+  "max_candidates": 10,
+  "analysis_concurrency": 1,
+  "config_status": {
+    "quantlab_base_url": true,
+    "quantlab_api_token": true,
+    "llm_configured": true,
+    "research_api_auth": true
+  }
+}

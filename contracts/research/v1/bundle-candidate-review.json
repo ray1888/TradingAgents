@@ -1,0 +1,95 @@
+{
+  "schema_version": "1",
+  "bundle_id": "bundle-candidates-2026-09-08",
+  "research_type": "candidate_review",
+  "as_of_time": "2026-09-08T15:00:00+08:00",
+  "as_of_date": "2026-09-08",
+  "versions": {
+    "snapshot_id": "snap-cand-1",
+    "financial_manifest_id": "fin-cand-1",
+    "industry_members_version": null,
+    "evidence_version": "ev-cand-1",
+    "prior_report_id": null
+  },
+  "scope": {
+    "theme": null,
+    "tickers": ["002714.SZ", "600519.SS", "000858.SZ"],
+    "horizon": "short-medium",
+    "coverage": {"news": "available"},
+    "industry_archive_present": false
+  },
+  "industry_members": [],
+  "industry_indicators": [],
+  "company_profiles": [
+    {"ticker": "002714.SZ", "name": "牧原股份", "summary": "生猪养殖", "evidence_ids": ["ev-c-ann"]},
+    {"ticker": "600519.SS", "name": "贵州茅台", "summary": "白酒", "evidence_ids": []},
+    {"ticker": "000858.SZ", "name": "五粮液", "summary": "白酒", "evidence_ids": ["ev-c-risk"]}
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-c-ann",
+      "kind": "official_disclosure",
+      "source_identity": "cninfo",
+      "title": "牧原股份出栏公告",
+      "body": "出栏符合经营计划。",
+      "published_at": "2026-09-05T00:00:00+08:00",
+      "available_at": "2026-09-05T00:00:00+08:00",
+      "content_hash": "hash-c-ann",
+      "tickers": ["002714.SZ"]
+    },
+    {
+      "evidence_id": "ev-c-news",
+      "kind": "media",
+      "source_identity": "cls",
+      "title": "茅台批价走弱",
+      "body": "渠道反馈批价下行。",
+      "published_at": "2026-09-06T00:00:00+08:00",
+      "available_at": "2026-09-06T00:00:00+08:00",
+      "content_hash": "hash-c-news",
+      "tickers": ["600519.SS"]
+    },
+    {
+      "evidence_id": "ev-c-risk",
+      "kind": "official_disclosure",
+      "source_identity": "cninfo",
+      "title": "五粮液诉讼进展",
+      "body": "重大诉讼尚未结案。",
+      "published_at": "2026-09-07T00:00:00+08:00",
+      "available_at": "2026-09-07T00:00:00+08:00",
+      "content_hash": "hash-c-risk",
+      "tickers": ["000858.SZ"]
+    }
+  ],
+  "signals": [
+    {
+      "ticker": "002714.SZ",
+      "rank": 1,
+      "strategy_name": "oversold-reversion",
+      "signal_reasons": ["短期超跌"],
+      "holding_horizon": "5-20d",
+      "selection_run_id": "selection-run-1",
+      "quant_metrics": {"rank_score": 1.8, "win_rate": 0.54}
+    },
+    {
+      "ticker": "600519.SS",
+      "rank": 2,
+      "strategy_name": "oversold-reversion",
+      "signal_reasons": ["估值回落"],
+      "holding_horizon": "5-20d",
+      "selection_run_id": "selection-run-1",
+      "quant_metrics": {"rank_score": 1.5, "win_rate": 0.51}
+    },
+    {
+      "ticker": "000858.SZ",
+      "rank": 3,
+      "strategy_name": "oversold-reversion",
+      "signal_reasons": ["相对弱势"],
+      "holding_horizon": "5-20d",
+      "selection_run_id": "selection-run-1",
+      "quant_metrics": {"rank_score": 1.2, "win_rate": 0.49}
+    }
+  ],
+  "prior_report": null,
+  "market_expectation_materials": [],
+  "coverage_notes": ["行业档案缺失"]
+}
