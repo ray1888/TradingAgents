@@ -36,6 +36,12 @@ def input_snapshot(bundle: ResearchBundle) -> dict:
         "evidence_count": len(bundle.evidence),
         "signal_count": len(bundle.signals),
         "prior_report_id": bundle.versions.prior_report_id,
+        "wire_versions": bundle.wire_versions
+        or {
+            key: str(value)
+            for key, value in bundle.versions.model_dump().items()
+            if value not in (None, "")
+        },
     }
 
 
@@ -53,9 +59,27 @@ def render_markdown(report: StructuredReport) -> str:
         "",
         report.conclusion,
         "",
-        "## Missing materials",
+        "## Used news evidence",
         "",
     ]
+    if report.news.used_news_evidence:
+        for item in report.news.used_news_evidence:
+            lines.append(
+                f"- [{item.evidence_id}] #{item.citation_no} {item.source}: {item.title} "
+                f"({item.url or 'no-url'}) published_at={item.published_at or 'unknown'} "
+                f"fetched_at={item.fetched_at} status={item.fetch_status}"
+            )
+    else:
+        lines.append("- (none)")
+    lines.extend(
+        [
+            "",
+            f"News MCP status: {report.news.mcp_status}",
+            "",
+            "## Missing materials",
+            "",
+        ]
+    )
     if report.missing_materials:
         lines.extend(f"- {item}" for item in report.missing_materials)
     else:
@@ -125,6 +149,16 @@ def build_report(
     opposing_evidence_ids: list[str] | None = None,
     status: str = "completed",
 ) -> StructuredReport:
+    known_ids = set(bundle.evidence_ids())
+    known_ids.update(item.evidence_id for item in news.events)
+    known_ids.update(item.evidence_id for item in news.used_news_evidence)
+    missing = list(missing_materials)
+    for gap in news.coverage_gaps:
+        if gap not in missing:
+            missing.append(gap)
+    report_status = status
+    if news.mcp_status in {"unavailable", "empty", "partial"} and status == "completed":
+        report_status = "partial"
     report = StructuredReport(
         schema_version=SCHEMA_VERSION,
         report_id=report_id,
@@ -141,12 +175,12 @@ def build_report(
         conclusion=conclusion,
         supporting_evidence_ids=supporting_evidence_ids or [],
         opposing_evidence_ids=opposing_evidence_ids or [],
-        missing_materials=missing_materials,
+        missing_materials=missing,
         applicability=applicability,
-        status=status,  # type: ignore[arg-type]
+        status=report_status,  # type: ignore[arg-type]
         provenance=provenance,
     )
-    report = apply_validation(report, bundle.evidence_ids())
+    report = apply_validation(report, known_ids)
     report = report.model_copy(update={"readable_markdown": render_markdown(report)})
     return report
 

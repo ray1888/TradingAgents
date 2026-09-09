@@ -143,6 +143,7 @@ class ResearchBundle(BaseModel):
     prior_report: dict[str, Any] | None = None
     market_expectation_materials: list[EvidenceItem] = Field(default_factory=list)
     coverage_notes: list[str] = Field(default_factory=list)
+    wire_versions: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("schema_version")
     @classmethod
@@ -204,6 +205,20 @@ class VersionChange(BaseModel):
         return value
 
 
+class UsedNewsEvidence(BaseModel):
+    evidence_id: str
+    citation_no: int
+    source: str
+    title: str
+    url: str | None = None
+    published_at: str | None = None
+    fetched_at: str
+    excerpt: str = ""
+    content_hash: str | None = None
+    fetch_status: Literal["ok", "failed", "title_only"] = "title_only"
+    fetch_error: str | None = None
+
+
 class NewsEvent(BaseModel):
     evidence_id: str
     event: str
@@ -216,12 +231,17 @@ class NewsEvent(BaseModel):
     canonical_evidence_id: str | None = None
     linked_ticker: str | None = None
     linked_hypothesis: str | None = None
+    fetch_status: Literal["ok", "failed", "title_only"] | None = None
+    citation_no: int | None = None
+    url: str | None = None
 
 
 class NewsAnalysis(BaseModel):
     events: list[NewsEvent] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
     ignored_instruction_evidence_ids: list[str] = Field(default_factory=list)
+    used_news_evidence: list[UsedNewsEvidence] = Field(default_factory=list)
+    mcp_status: Literal["skipped", "ok", "empty", "unavailable", "partial"] = "skipped"
 
 
 class IndustryThesisBody(BaseModel):

@@ -88,12 +88,16 @@ def capabilities() -> dict[str, Any]:
     provider = str(cfg.get("llm_provider") or "")
     key_name = llm_key_env.get(provider.lower())
     llm_configured = bool(os.environ.get(key_name, "")) if key_name else bool(provider)
+    ready = bool(cfg.get("quantlab_base_url") and llm_configured)
     return {
         "schema_version": SCHEMA_VERSION,
         "protocol_version": PROTOCOL_VERSION,
+        "schema_versions": [SCHEMA_VERSION],
+        "research_types": list(RESEARCH_TYPES),
         "supported_research_types": list(RESEARCH_TYPES),
         "max_candidates": MAX_CANDIDATES,
         "analysis_concurrency": ANALYSIS_CONCURRENCY,
+        "configuration": {"ready": ready},
         "config_status": {
             "quantlab_base_url": bool(cfg.get("quantlab_base_url")),
             "quantlab_api_token": bool(cfg.get("quantlab_api_token")),
@@ -232,13 +236,18 @@ def create_app(
                 status_code=409,
                 detail={"code": "RESULT_NOT_READY", "status": run.status, "run_id": run_id},
             )
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "run_id": run.run_id,
-            "status": run.status,
-            "report": run.result.get("report"),
-            "readable_markdown": run.result.get("readable_markdown"),
-        }
+        from tradingagents.research.compat import to_quantlab_report
+        from tradingagents.research.schemas import StructuredReport
+
+        stored = run.result.get("wire_report")
+        if stored is None and run.result.get("report"):
+            stored = to_quantlab_report(StructuredReport.model_validate(run.result["report"]))
+        if stored is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RESULT_NOT_READY", "status": run.status, "run_id": run_id},
+            )
+        return stored
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, exc: HTTPException):

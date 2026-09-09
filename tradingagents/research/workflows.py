@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tradingagents.research.news import analyze_bundle_news
+from tradingagents.research.news import gather_research_news
 from tradingagents.research.prompts import candidate_prompt, industry_prompt
 from tradingagents.research.protocol import MAX_CANDIDATES
 from tradingagents.research.reports import build_report, default_provenance
@@ -87,7 +87,7 @@ def run_industry_thesis(
 ) -> StructuredReport:
     if bundle.research_type != "industry_thesis":
         raise ValueError("bundle research_type must be industry_thesis")
-    news = analyze_bundle_news(bundle)
+    news = gather_research_news(bundle)
     prompt = industry_prompt(bundle, news)
     body = synthesizer.generate(prompt, IndustryThesisBody)
     if not isinstance(body, IndustryThesisBody):
@@ -150,7 +150,7 @@ def run_candidate_review(
 ) -> StructuredReport:
     if bundle.research_type != "candidate_review":
         raise ValueError("bundle research_type must be candidate_review")
-    news = analyze_bundle_news(bundle)
+    news = gather_research_news(bundle)
     ranked = sorted(bundle.signals, key=lambda item: item.rank)
     analyze = ranked[:MAX_CANDIDATES]
     leftover = ranked[MAX_CANDIDATES:]

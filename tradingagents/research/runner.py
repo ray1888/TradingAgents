@@ -12,6 +12,7 @@ from typing import Any
 from tradingagents.dataflows.config import set_config
 from tradingagents.default_config import DEFAULT_CONFIG, apply_env_overrides
 from tradingagents.research.bundle_client import fetch_bundle
+from tradingagents.research.compat import to_quantlab_report
 from tradingagents.research.protocol import STATUS_COMPLETED, STATUS_FAILED, STATUS_PARTIAL
 from tradingagents.research.schemas import ResearchBundle, StructuredReport
 from tradingagents.research.store import ResearchRunStore
@@ -131,6 +132,7 @@ def execute_stored_run(
         result={
             "report": report.model_dump(mode="json"),
             "readable_markdown": report.readable_markdown,
+            "wire_report": to_quantlab_report(report),
         },
         clear_pid=True,
     )

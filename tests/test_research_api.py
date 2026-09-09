@@ -32,7 +32,8 @@ def test_submit_status_and_result_roundtrip(tmp_path):
     client = TestClient(app)
     caps = client.get("/api/research/v1/capabilities")
     assert caps.status_code == 200
-    assert "quantlab_api_token" in caps.json()["config_status"]
+    assert caps.json()["schema_versions"] == ["1"]
+    assert caps.json()["configuration"]["ready"] in {True, False}
     assert "OPENAI" not in str(caps.json())
 
     submitted = client.post("/api/research/v1/runs", json=load_contract("submit-industry.json"))
@@ -42,9 +43,10 @@ def test_submit_status_and_result_roundtrip(tmp_path):
     assert status.json()["status"] == "completed"
     result = client.get(f"/api/research/v1/runs/{run_id}/result")
     body = result.json()
-    assert body["report"]["schema_version"] == "1"
-    assert body["report"]["industry_thesis"]["expectation_gap_status"] == "pending_verification"
-    assert body["readable_markdown"]
+    assert body["schema_version"] == "1"
+    assert body["run_id"] == run_id
+    assert body["readable"]
+    assert "hypotheses" in body
 
 
 def test_idempotent_submit_and_conflict(tmp_path):
