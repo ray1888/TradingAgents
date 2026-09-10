@@ -31,6 +31,20 @@ services:
     profiles:
       - ollama
 
+  research-api:
+    build: .
+    env_file:
+      - .env
+    entrypoint: ["python", "-m", "tradingagents.research.service"]
+    environment:
+      - TRADINGAGENTS_RESEARCH_LISTEN=0.0.0.0:8090
+    ports:
+      - "8090:8090"
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    profiles:
+      - research
+
 volumes:
   tradingagents_data:
   ollama_data:

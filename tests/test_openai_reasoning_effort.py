@@ -20,6 +20,8 @@ from tradingagents.llm_clients.openai_client import (
         ("gpt-5.5-pro", True), ("o1", True), ("o3-mini", True),
         ("gpt-4.1", False), ("gpt-4o", False), ("gpt-4o-mini", False),
         ("gpt-3.5-turbo", False),
+        ("k3", True), ("k3-256k", True),
+        ("kimi-for-coding", False), ("kimi-for-coding-highspeed", False),
     ],
 )
 def test_supports_reasoning_effort(model, expected):

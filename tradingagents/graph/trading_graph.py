@@ -205,6 +205,9 @@ class TradingAgentsGraph:
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
 
+        elif provider == "kimi-code":
+            kwargs["reasoning_effort"] = self.config.get("openai_reasoning_effort") or "high"
+
         elif provider == "anthropic":
             effort = self.config.get("anthropic_effort")
             if effort:

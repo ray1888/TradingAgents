@@ -723,6 +723,14 @@ def get_user_selections():
             "Reasoning effort", "Step 8: Reasoning Effort",
             "Configure OpenAI reasoning effort level", ask_openai_reasoning_effort,
         )
+    elif provider_lower == "kimi-code":
+        if os.environ.get("TRADINGAGENTS_OPENAI_REASONING_EFFORT"):
+            reasoning_effort = DEFAULT_CONFIG["openai_reasoning_effort"]
+            console.print(
+                f"[green]✓ K3 reasoning effort from environment:[/green] {reasoning_effort}"
+            )
+        else:
+            reasoning_effort = "high"
     elif provider_lower == "anthropic":
         anthropic_effort = thinking_value_or_prompt(
             "TRADINGAGENTS_ANTHROPIC_EFFORT", "anthropic_effort",

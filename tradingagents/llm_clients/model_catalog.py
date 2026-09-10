@@ -184,6 +184,23 @@ MODEL_OPTIONS: ProviderModeOptions = {
     # model their account has access to.
     "mistral": _CUSTOM_ONLY,
     "kimi": _CUSTOM_ONLY,
+    # Kimi Code Plan (api.kimi.com/coding): stable IDs from the official
+    # model table. We pin K3 to ``k3-256k`` (256K) rather than ``k3``
+    # (up-to-1M); same quality inside 256K at about half the quota.
+    # HighSpeed needs Allegretto+. Aliases like kimi-k2.6 still work via
+    # Custom ID; ``k3`` remains reachable that way if someone wants 1M.
+    "kimi-code": {
+        "quick": [
+            ("K3 - Flagship, 256K ctx", "k3-256k"),
+            ("K2.7 Code HighSpeed - Fast, Allegretto+", "kimi-for-coding-highspeed"),
+            ("K2.7 Code - Auto-upgrading coding alias", "kimi-for-coding"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("K3 - Flagship, 256K ctx", "k3-256k"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     "groq": _CUSTOM_ONLY,
     "nvidia": _CUSTOM_ONLY,
     # Bedrock model IDs / cross-region inference profile IDs are user-specified.
