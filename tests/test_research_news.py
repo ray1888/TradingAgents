@@ -89,6 +89,27 @@ class _FakeMcp:
         return handler(arguments)
 
 
+def test_explicit_frozen_corpus_never_searches_even_when_empty():
+    bundle = _hog_without_media().model_copy(update={"news_frozen": True,
+        "news_cutoff_time": "2026-09-01T22:00:00+08:00"})
+    client = _FakeMcp({})
+    assert gather_research_news(bundle, client=client).used_news_evidence == []
+    assert client.calls == []
+    prompt = industry_prompt(bundle, analyze_bundle_news(bundle))
+    assert "news_cutoff_time=2026-09-01T22:00:00+08:00" in prompt
+    assert "display_event_limit=12" in prompt
+
+
+def test_frozen_evidence_is_not_truncated_to_display_limit():
+    evidence = [EvidenceItem(evidence_id=f"news-{i}", kind="media",
+        source_identity="test", title=f"事件 {i}", body=f"核验正文 {i}") for i in range(75)]
+    bundle = hog_bundle().model_copy(update={"evidence": evidence, "news_frozen": True})
+    news = analyze_bundle_news(bundle)
+    assert len(news.events) == 75
+    assert len(news.used_news_evidence) == 75
+    assert "核验正文 74" in render_news_for_prompt(news)
+
+
 def _hog_without_media():
     bundle = hog_bundle()
     return bundle.model_copy(

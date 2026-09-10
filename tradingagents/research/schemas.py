@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -54,6 +55,11 @@ class EvidenceItem(BaseModel):
     available_at: str | None = None
     content_hash: str | None = None
     revision: int = 1
+    version_id: str | None = None
+    body_available_at: datetime | None = None
+    raw_uri: str | None = None
+    body_raw_uri: str | None = None
+    selection_reason: str | None = None
     url: str | None = None
     vendor_record_id: str | None = None
     tickers: list[str] = Field(default_factory=list)
@@ -128,6 +134,15 @@ class BundleScope(BaseModel):
 
 
 class ResearchBundle(BaseModel):
+    news_frozen: bool = False
+    news_cutoff_time: str | None = None
+    corpus_manifest_id: str | None = None
+    retrieval_strategy_version: str | None = None
+    model_config_version: str | None = None
+    research_model_config_version: str | None = None
+    coverage_statistics: dict[str, Any] = Field(default_factory=dict)
+    retrieval_id: str | None = None
+    display_event_limit: int = 12
     schema_version: str
     bundle_id: str
     research_type: Literal["industry_thesis", "candidate_review"]

@@ -181,7 +181,7 @@ def _search_queries(bundle: ResearchBundle) -> list[str]:
         ordered.append(query)
         if len(ordered) >= 4:
             break
-    return ordered or ["生猪"]
+    return ordered
 
 
 def _date_range(client: NewsSearchClient, bundle: ResearchBundle) -> dict[str, str] | None:
@@ -360,7 +360,8 @@ def gather_research_news(
     """Bundle official items plus TrendRadar MCP media when configured."""
     news = analyze_bundle_news(bundle)
     coverage = bundle.scope.coverage or {}
-    frozen_news = coverage.get("news") in {"unavailable", "frozen_trendradar"}
+    frozen_news = (bundle.news_frozen or coverage.get("news_permission") is False
+                   or coverage.get("news") in {"unavailable", "frozen_trendradar", "frozen_corpus"})
     if any(_news_like(item) for item in bundle.evidence) or frozen_news:
         return news
     use_mcp = client is not None or mcp_enabled()
@@ -412,7 +413,7 @@ def render_news_for_prompt(news: NewsAnalysis) -> str:
                 f"- [{item.evidence_id}] #{item.citation_no} source={item.source} "
                 f"url={item.url or '-'} published_at={item.published_at or 'unknown'} "
                 f"fetched_at={item.fetched_at} status={item.fetch_status} "
-                f"title={item.title}"
+                f"title={item.title} excerpt={item.excerpt}"
             )
     if news.coverage_gaps:
         lines.append("COVERAGE_GAPS:")
