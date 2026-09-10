@@ -23,6 +23,7 @@ def test_every_select_llm_provider_choice_has_an_entry():
         "glm", "glm-cn",
         "minimax", "minimax-cn",
         "openrouter", "azure", "ollama",
+        "kimi", "kimi-code",
     }
     assert expected.issubset(PROVIDER_API_KEY_ENV.keys())
 
@@ -43,6 +44,8 @@ def test_every_select_llm_provider_choice_has_an_entry():
         ("minimax",    "MINIMAX_API_KEY"),
         ("minimax-cn", "MINIMAX_CN_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
+        ("kimi",       "MOONSHOT_API_KEY"),
+        ("kimi-code",  "KIMI_CODE_API_KEY"),
     ],
 )
 def test_known_providers_resolve(provider, env_var):

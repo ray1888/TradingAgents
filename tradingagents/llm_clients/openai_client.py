@@ -173,11 +173,17 @@ _PASSTHROUGH_KWARGS = (
 # "Unsupported parameter: 'reasoning.effort' is not supported with this model".
 # Drop the kwarg for those rather than crash the run.
 _OPENAI_REASONING_MODEL = re.compile(r"^(gpt-5|o[1-9])")
+# Kimi Code K3 accepts top-level reasoning_effort (low/high/max). The
+# kimi-for-coding aliases do not; forwarding it there 400s.
+_KIMI_CODE_REASONING_MODEL = re.compile(r"^k3(-256k)?$")
 
 
 def _supports_reasoning_effort(model: str) -> bool:
-    """Whether the (native OpenAI) model accepts ``reasoning_effort``."""
-    return bool(_OPENAI_REASONING_MODEL.match(model.lower().strip()))
+    """Whether the model accepts ``reasoning_effort`` on Chat Completions."""
+    name = model.lower().strip()
+    return bool(
+        _OPENAI_REASONING_MODEL.match(name) or _KIMI_CODE_REASONING_MODEL.match(name)
+    )
 
 
 @dataclass(frozen=True)
@@ -222,6 +228,7 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     "openrouter": ProviderSpec(base_url="https://openrouter.ai/api/v1"),
     "mistral":    ProviderSpec(base_url="https://api.mistral.ai/v1"),
     "kimi":       ProviderSpec(base_url="https://api.moonshot.ai/v1"),
+    "kimi-code":  ProviderSpec(base_url="https://api.kimi.com/coding/v1"),
     "groq":       ProviderSpec(base_url="https://api.groq.com/openai/v1"),
     "nvidia":     ProviderSpec(base_url="https://integrate.api.nvidia.com/v1"),
     "ollama":     ProviderSpec(base_url="http://localhost:11434/v1", base_url_env="OLLAMA_BASE_URL",
@@ -328,6 +335,16 @@ class OpenAIClient(BaseLLMClient):
             if key == "reasoning_effort" and not _supports_reasoning_effort(self.model):
                 continue
             llm_kwargs[key] = self.kwargs[key]
+
+        # Kimi Code K3 needs an explicit effort. Default to high so analysis
+        # still thinks; callers can pass low/max to override. kimi-for-coding
+        # aliases do not accept this parameter.
+        if (
+            self.provider == "kimi-code"
+            and _supports_reasoning_effort(self.model)
+            and "reasoning_effort" not in llm_kwargs
+        ):
+            llm_kwargs["reasoning_effort"] = "high"
 
         # The subclass (provider quirks) comes from the registry spec.
         return chat_cls(**llm_kwargs)

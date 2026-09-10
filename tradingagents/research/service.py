@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from tradingagents.default_config import DEFAULT_CONFIG, apply_env_overrides
+from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.research.protocol import (
     ANALYSIS_CONCURRENCY,
     MAX_CANDIDATES,
@@ -79,15 +80,14 @@ def require_service_auth(
 
 def capabilities() -> dict[str, Any]:
     cfg = apply_env_overrides(dict(DEFAULT_CONFIG))
-    llm_key_env = {
-        "openai": "OPENAI_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-    }
     provider = str(cfg.get("llm_provider") or "")
-    key_name = llm_key_env.get(provider.lower())
-    llm_configured = bool(os.environ.get(key_name, "")) if key_name else bool(provider)
+    key_name = get_api_key_env(provider)
+    if key_name:
+        llm_configured = bool(os.environ.get(key_name, ""))
+    else:
+        # Providers with no key env (ollama, bedrock) still count as configured
+        # once a provider is selected.
+        llm_configured = bool(provider)
     ready = bool(cfg.get("quantlab_base_url") and llm_configured)
     return {
         "schema_version": SCHEMA_VERSION,

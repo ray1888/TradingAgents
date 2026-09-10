@@ -30,9 +30,11 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "minimax-cn": "MINIMAX_CN_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     # Additional hosted OpenAI-compatible providers (model is user-specified).
-    # kimi -> Moonshot AI; nvidia -> NVIDIA NIM.
+    # kimi -> Moonshot Open Platform; kimi-code -> Kimi Code Plan (keys are
+    # not interchangeable); nvidia -> NVIDIA NIM.
     "mistral":    "MISTRAL_API_KEY",
     "kimi":       "MOONSHOT_API_KEY",
+    "kimi-code":  "KIMI_CODE_API_KEY",
     "groq":       "GROQ_API_KEY",
     "nvidia":     "NVIDIA_API_KEY",
     # Local runtimes do not authenticate.
